@@ -18,7 +18,7 @@ cables and solder them to the breakout pins on the board.
 The default connection is to the 3.3V, GND, SDA (white) to P22 and SCL (yellow) to P21.
 Other pins can be assigned when defining the I2C bus in the main program.
 
-The 4 channels of the MCP3424 are available with screw terminals. 
+The 4 channels of the MCP3424 are available with screw terminals.
 
 **Testing the library**
 
@@ -38,7 +38,9 @@ channel in the ADC.
   resolution (12,14,16,18), scale_factor and offset.
   The default is one-shot mode, but it is possible to run in continuous mode.
 
-  `i2c = I2C(0, I2C.MASTER, pins=('P22', 'P21'))
+  ```python
+  i2c = I2C(0, I2C.MASTER, pins=('P22', 'P21'))
+
    addr68_ch0 = MCP342x(i2c, address=0x68,
      device='MCP3424',
      channel=0,
@@ -46,10 +48,12 @@ channel in the ADC.
      resolution=12,
      continuous_mode=False,
      scale_factor=1.0,
-     offset=0.0)`
+     offset=0.0)
+
+   ```
 
   * **convert_and_read()**
 
   Measures on the channel with the current settings and returns the measurement.
 
-# TODO: complete documentation.
+#### TODO: complete documentation.
