@@ -4,12 +4,12 @@ Adapted to PyCom boards from stevemarple/python-MCP342x
 https://github.com/stevemarple/python-MCP342x
 
 """
-
-import time
+import utime
 
 __author__ = 'Jose A. Jimenez-Berni'
-__version__ = '0.0.1'
+__version__ = '0.1.0'
 __license__ = 'MIT'
+
 
 class MCP342x(object):
     """
@@ -25,10 +25,12 @@ class MCP342x(object):
                        2: 0b01,
                        4: 0b10,
                        8: 0b11}
+
     _resolution_to_config = {12: 0b0000,
                              14: 0b0100,
                              16: 0b1000,
                              18: 0b1100}
+
     _channel_to_config = {0: 0b0000000,
                           1: 0b0100000,
                           2: 0b1000000,
@@ -60,13 +62,10 @@ class MCP342x(object):
     def config_to_str(config, width=8):
         n = config & 0x7f
         s = bin(n)[2:]
-        return '0b' + ('0' * (width-len(s))) + s
-
-    @staticmethod
-    def configure_device(i2c, address, config):
-        print('Configure device ' + hex(address))
-        self.cbuffer[0] = self.config
-        self.i2c.writeto(self.address, self.cbuffer)
+        bin_str = '0b' + ('0' * (width - len(s))) + s
+        hex_str = hex(n)
+        dec_str = str(n)
+        return bin_str + ',' + hex_str + ',' + dec_str
 
     def __init__(self,
                  i2c,
@@ -82,6 +81,7 @@ class MCP342x(object):
         if device not in ('MCP3422', 'MCP3423', 'MCP3424',
                           'MCP3426', 'MCP3427', 'MCP3428'):
             raise Exception('Unknown device: ' + str(device))
+
         self.i2c = i2c
         self.address = address
         self.config = 0
@@ -98,9 +98,14 @@ class MCP342x(object):
         self.set_continuous_mode(continuous_mode)
 
     def __repr__(self):
-        addr = hex(self.address)
-        return (type(self).__name__ + ': device=' + self.device
-                + ', address=' + addr)
+        return (type(self).__name__
+                + ': device=' + self.device
+                + ' addr=' + hex(self.get_address())
+                + ' chnl=' + str(self.get_channel())
+                + ' res=' + str(self.get_resolution())
+                + ' gain=' + str(self.get_gain())
+                + ' config:' + MCP342x.config_to_str(self.config)
+               )
 
     def get_i2c(self):
         return self.i2c
@@ -181,40 +186,39 @@ class MCP342x(object):
 
     def configure(self):
         """Configure the device.
-        Send the device configuration saved inside the MCP342x object to the target device."""
-        print('Configuring ' + hex(self.get_address())
-                     + ' ch: ' + str(self.get_channel())
-                     + ' res: ' + str(self.get_resolution())
-                     + ' gain: ' + str(self.get_gain()))
+        Send the device configuration saved inside the MCP342x object to the target device.
+        """
+        # print('Sending config to ' + str(self))
         self.cbuffer[0] = self.config
         self.i2c.writeto(self.address, self.cbuffer)
 
     def convert(self):
         """Initiate one-shot conversion.
-        The current settings are used, with the exception of continuous mode."""
+        The current settings are used, with the exception of continuous mode.
+        """
         c = self.config
-        c &= (~MCP342x._continuous_mode_mask & 0x7f)  # Force one-shot
-        c |= MCP342x._not_ready_mask                  # Convert
-        #print('Convert ' + hex(self.address) + ' config: ' + bin(c))
-        self.i2c.writeto(self.address, c)
+        c &= (~MCP342x._continuous_mode_mask & 0x7f)  # force one-shot
+        c |= MCP342x._not_ready_mask                  # convert
+        # print('Convert ' + hex(self.address) + ' config: ' + bin(c))
+        d = bytearray(1)
+        d[0] = c
+        self.i2c.writeto(self.address, d)
 
     def raw_read(self):
         res = self.get_resolution()
         bytes_to_read = 4 if res == 18 else 3
+
         while True:
-            # Stupid smbus forces us to write a byte of data, even
-            # with its 'I2C' write command. For MCP342x this forces us
-            # to overwrite the configuration setting.
-            #
-            # The correct action would be to check the configuration
-            # reported by raw_read() matches the stored configuration
-            # in the object. This can't be done since we have to
-            # destroy the actual value before reading.
-            self.cbuffer[0] = self.config
-            self.i2c.writeto(self.address, self.cbuffer)
-            time.sleep_ms(25)
+            self.configure()
+            utime.sleep_ms(25)
             d = self.i2c.readfrom(self.address, bytes_to_read)
             config_used = d[-1]
+            # Verify a matching configuration.
+            if (config_used & 0x7f) != (self.config & 0x7f):
+                raise Exception('Config does not match: '
+                                + MCP342x.config_to_str(config_used) + ' != '
+                                + MCP342x.config_to_str(self.config))
+
             if config_used & MCP342x._not_ready_mask == 0:
                 count = 0
                 for i in range(bytes_to_read - 1):
@@ -233,21 +237,17 @@ class MCP342x(object):
     def read(self, scale_factor=None, offset=None, raw=False):
         if scale_factor is None:
             scale_factor = self.scale_factor
+
         if offset is None:
             offset = self.offset
+
         count, config_used = self.raw_read()
-        # Go through the motions of checking that the configuration
-        # matches. Until raw_read() is able to read without
-        # overwriting the configuration setting this is unlikely to be
-        # very useful.
-        if config_used != self.config:
-            raise Exception('Config does not match ('
-                            + MCP342x.config_to_str(config_used) + ' != '
-                            + MCP342x.config_to_str(self.config))
 
         if raw:
             return count
+
         lsb = MCP342x.config_to_lsb(config_used)
+
         # With the standard scale_factor=1 this returns the voltage
         # difference between IN+ and IN-. Other scale_factors can be
         # used to account for gain or attenuation, or to convert
@@ -255,22 +255,17 @@ class MCP342x(object):
         voltage = (count * lsb * scale_factor / MCP342x.config_to_gain(config_used)) + offset
         return voltage
 
-    def convert_and_read(self,
-                         sleep=True,
-                         samples=None,
-                         aggregate=None,
-                         **kwargs):
-        if samples is not None:
-            r = [0] * samples
-        for sn in ([0] if samples is None else range(samples)):
+    def convert_and_read(self, sleep=True, samples=None, aggregate=None, **kwargs):
+        sleep_secs = (0.95 * self.get_conversion_time()) if sleep else 0
+        r: list = [0] * (samples or 1)
+        for sn in range(len(r)):
             self.convert()
-            if sleep:
-                time.sleep(0.95 * self.get_conversion_time())
+            utime.sleep(sleep_secs)
             val = self.read(**kwargs)
-            if samples is not None:
-                r[sn] = val
-            else:
-                r = val
+            r[sn] = val
+
         if aggregate:
             r = aggregate(r)
-        return r
+
+        return r if samples else r[0]
+
