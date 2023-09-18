@@ -101,3 +101,7 @@ ENV/
 
 # Atom pymakr config
 pymakr.conf
+
+# VS Code
+.vscode
+.micropico
